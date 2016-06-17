@@ -1,0 +1,9 @@
+{
+  "service": "foo",
+  "port": 5001,
+  "depends_on": [],
+
+  "datawire": {
+    "token": ""
+  }
+}
