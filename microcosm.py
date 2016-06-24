@@ -97,6 +97,7 @@ def configure_dependencies(deps):
 def is_foundational():
     return len(dependencies) == 0
 
+node_id = None
 
 @app.route('/', methods=['POST', 'GET'])
 def process_request():
@@ -104,18 +105,17 @@ def process_request():
     app.logger.info(RECV_REQUEST_MSG, request_id)
     result = []
 
-    if is_foundational():
-        result.append({'request_id': request_id})
-    else:
-        for service in dependencies:
-            node = discovery.resolve(service)
-            node.await(10.0)
-            response = requests.post('http://{}/'.format(node.address))
-            app.logger.info(SENT_DOWNSTREAM_REQUEST, node.service, node.version, node.address)
-            responder_data = response.json()
-            responder_node = responder_data[0]
-            app.logger.info(RECV_DOWNSTREAM_RESPONSE_MSG, responder_node['request_id'])
-            result = result + responder_data
+    result.append({'node_id': node_id, 'request_id': request_id})
+
+    for service in dependencies:
+        node = discovery.resolve(service)
+        node.await(10.0)
+        response = requests.post('http://{}/'.format(node.address))
+        app.logger.info(SENT_DOWNSTREAM_REQUEST, node.service, node.version, node.address)
+        responder_data = response.json()
+        responder_node = responder_data[0]
+        app.logger.info(RECV_DOWNSTREAM_RESPONSE_MSG, responder_node['request_id'])
+        result.append(responder_data)
 
     app.logger.info(SENT_RESPONSE_MSG, request_id)
     return jsonify(result)
@@ -150,6 +150,9 @@ def run_server(args):
 
     node.address = '{}:{}'.format(service_host, service_port)
     node.version = config.get('version')
+
+    global node_id
+    node_id = "%s[%s, %s]" % (node.service, node.address, node.version)
 
     discovery.connect().start()
     discovery.register(node)

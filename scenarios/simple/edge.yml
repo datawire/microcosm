@@ -1,0 +1,7 @@
+---
+service: edge
+version: '1.0'
+dependencies: intermediary
+http_server:
+  address: 0.0.0.0
+  port: 5000
