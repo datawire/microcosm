@@ -94,11 +94,6 @@ def configure_dependencies(deps):
         raise TypeError("Invalid config 'dependencies' format. Must either be a list or comma-separated string.")
 
 
-# TODO: Remove once Discovery client can resolve versions properly.
-def create_service_name(name, version):
-    return "{}:{}".format(name, version)
-
-
 def is_foundational():
     return len(dependencies) == 0
 
@@ -114,6 +109,7 @@ def process_request():
     else:
         for service in dependencies:
             node = discovery.resolve(service)
+            node.await(10.0)
             response = requests.post('http://{}/'.format(node.address))
             app.logger.info(SENT_DOWNSTREAM_REQUEST, node.service, node.version, node.address)
             responder_data = response.json()
@@ -151,7 +147,7 @@ def run_server(args):
     # Hack to work around lack of version support in the client. Make the name <service>:<version>
     service_name = config.get('service')
     service_version = config.get('version')
-    node.service = create_service_name(service_name, service_version)
+    node.service = service_name
 
     node.address = '{}:{}'.format(service_host, service_port)
     node.version = config.get('version')
