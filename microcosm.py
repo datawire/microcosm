@@ -98,7 +98,7 @@ def is_foundational():
     return len(dependencies) == 0
 
 
-@app.route('/', methods=['POST'])
+@app.route('/', methods=['POST', 'GET'])
 def process_request():
     request_id = str(uuid4())
     app.logger.info(RECV_REQUEST_MSG, request_id)
@@ -144,7 +144,6 @@ def run_server(args):
     discovery.withToken(DatawireToken.getToken())
 
     node = Node()
-    # Hack to work around lack of version support in the client. Make the name <service>:<version>
     service_name = config.get('service')
     service_version = config.get('version')
     node.service = service_name
