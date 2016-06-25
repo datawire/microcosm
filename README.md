@@ -7,7 +7,7 @@ Microservices Development Kit (MDK).
 # Usage
 
 1. Set DATAWIRE_TOKEN in your environment. The value is accessible
-   from you Datawire account at http://app.datawire.io.
+   from your Datawire account at http://app.datawire.io.
 
    export DATAWIRE_TOKEN='your_token_here'
 
