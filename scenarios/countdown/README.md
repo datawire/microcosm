@@ -1,8 +1,8 @@
-Election
---------
+Countdown
+---------
 
-Election is a simple set of microservices that returns the current
-date, and the time remaining until Election Day (November 8, 2016).
+Countdown is a simple set of microservices that returns the current
+date and the time remaining to various world events.
 
 Architecture
 ------------
@@ -10,10 +10,11 @@ Architecture
 Election consists of the following microservices:
 
 - Edge
-- Time, which returns the current time in GMT
+- Time, which returns the current time
 - Countdown, which calculates the time remaining until the election
 
 The topology is:
 
 Edge -> Time
-     -> Countdown
+     -> Election
+     -> Olympic2018
