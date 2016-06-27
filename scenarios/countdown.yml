@@ -1,5 +1,4 @@
 ---
-name: countdown
 description: richard's countdown example
 version: 1.0
 services:

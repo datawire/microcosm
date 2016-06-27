@@ -17,11 +17,17 @@ Install the Datawire MDK if you have not already done so:
 
 2. Launch a scenario. The simple scenario launches 5 microservices.
 
-   `python microcosmctl.py scenarios/countdown.yml`
+   `python microcosmctl.py create scenarios/countdown.yml`
 
 3. Connect to the edge microservice and get the result. Generally this printed as the last deployed service by the `microcosmctl.py` tool.
 
    `curl http://127.0.0.1:5000`
+   
+## Terminating the Architecture
+
+The entire architecture can be terminated by using the following command:
+
+    `python microcosmctl.py destroy countdown`
 
 In the simple scenario, if you repeatedly connect to the edge service,
 you'll see that it load balances automatically between 3 different
@@ -33,7 +39,6 @@ Defining an architecture file is very simple and uses an easy to read and edit Y
 
 ```yaml
 ---
-name: <name of your architecture>
 description: <a brief description of your simulation>
 version: <architecture version>
 ```
@@ -41,7 +46,6 @@ version: <architecture version>
 To define the actual topology users should add `services` dictionary to the YAML document such that the doc looks similar to this:
 
 ```yaml
-name: <name of your architecture>
 description: <a brief description of your simulation>
 version: <architecture version>
 services:
@@ -52,7 +56,6 @@ services:
 The entries in the `services` dictionary define the topology. For example to model a very basic web server and database service use the following model:
 
 ```yaml
-name: <name of your architecture>
 description: <a brief description of your simulation>
 version: <architecture version>
 services:

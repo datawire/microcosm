@@ -17,7 +17,8 @@
 """microcosmctl.py
 
 Usage:
-    microcosmctl.py <architecture-file>
+    microcosmctl.py create  <architecture-file>
+    microcosmctl.py destroy <architecture-name>
     microcosmctl.py (-h | --help)
     microcosmctl.py --version
 
@@ -26,21 +27,37 @@ Options:
     --version           Show the version.
 """
 
+"""microcosmctl.py
+
+Usage:
+    microcosmctl.py deploy <architecture-file>
+    microcosmctl.py kill   <architecture>
+    microcosmctl.py (-h | --help)
+    microcosmctl.py --version
+
+Options:
+    -h --help           Show the help.
+    --version           Show the version.
+"""
+
+import errno
 import os
 import re
 import subprocess
 import sys
 import yaml
+import json
 import logging
+import signal
 
 from docopt import docopt
 from toposort import toposort, toposort_flatten
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s")
 logger = logging.getLogger('microcosmctl.py')
 
 
-def load_config(path):
+def load_architecture(path):
 
     """Reads a Microcosm configuration file.
 
@@ -64,63 +81,77 @@ def load_config(path):
         return yaml.load(stream)
 
 
-def setup():
-    if not os.path.exists(os.getcwd() + "/.microcosm"):
-        os.mkdir(os.getcwd() + "/.microcosm")
+def setup_state_dir(arch_name):
+    path = ".microcosm/{}".format(arch_name)
+    try:
+        logger.info("Initializing architecture state directory (path: %s)", path)
+        os.makedirs(path)
+        os.makedirs("{}/logs".format(path))
+        if not os.path.exists("{}/state.json".format(path)):
+            logger.info("Initializing empty state file...")
+            with open("{}/state.json".format(path), 'w+') as f:
+                f.write('{}')
+
+    except OSError:
+        if not os.path.isdir(path):
+            raise
+
+    return path
 
 
-def create_state_dir(architecture):
-    arch_state_path = os.getcwd() + "/.microcosm/" + architecture
-
-    if not os.path.exists(arch_state_path):
-        os.mkdir(arch_state_path)
-
-    if not os.path.exists(arch_state_path + "/logs"):
-        os.mkdir(arch_state_path + "/logs")
-
-    return arch_state_path
+def update_state(arch_name, state):
+    path = ".microcosm/{}/state.json".format(arch_name)
+    with open(path, 'w+') as f:
+        json.dump(state, f, indent=4)
 
 
-def run_controller(args):
-    setup()
+def destroy(args, state):
+    logger.info("Destroying architecture (name: %s)", args['<architecture-name>'])
+    running_services = state['running_services']
+    for name, infos in running_services.iteritems():
+        for info in running_services[name]:
+            logger.info("Terminating service instance (name: %s, slug: %s)", name, info['pid'])
+            os.kill(int(info['pid']), signal.SIGKILL)
 
-    architecture_file = args['<architecture-file>']
-    architecture = load_config(architecture_file)
-    if not architecture['services']:
-        raise ValueError('No services defined')
+    state['running_services'] = {}
+    update_state(args['<architecture-name>'], state)
 
-    state_dir_path = create_state_dir(architecture['name'])
 
-    services_definitions = architecture['services']
+def create(args, arch, arch_state, arch_state_dir):
+    service_definitions = arch.get('services', {})
+    if len(service_definitions) < 1:
+        raise ValueError("""Architecture definition "{}" is missing "services" or has an empty "services" key. Define
+        at least one service to continue""")
+
     deploy_graph = {}
-    for service_name, service_definition in services_definitions.iteritems():
+    for service_name, service_definition in service_definitions.iteritems():
         deploy_graph[service_name] = set(service_definition.get('dependencies', {}))
 
     deploy_graph = list(toposort_flatten(deploy_graph))
 
     # Iterate over the deployment graph and start a microcosm process for each service described. This code is a little
     # clumsy right now because we're retrofitting microcosmctl.py to work with microcosm.py by using it's config file.
+
     port = 5000
     pid_map = {}
-    pid_map_file = state_dir_path + '/pids.yml'
     for service_name in deploy_graph:
         service_config = {
             'service': str(service_name),
-            'version': str(services_definitions[service_name].get('version', '1.0')),
-            'dependencies': services_definitions[service_name].get('dependencies', []),
+            'version': str(service_definitions[service_name].get('version', '1.0')),
+            'dependencies': service_definitions[service_name].get('dependencies', []),
             'http_service': {
                 'address': '127.0.0.1',
             }
         }
 
-        service_config_file = state_dir_path + '/' + service_name + '.yml'
+        service_config_file = arch_state_dir + '/' + service_name + '.yml'
         with open(service_config_file, 'w+') as f:
             yaml.dump(service_config, f)
 
-        count = services_definitions[service_name].get('count', 1)
+        count = service_definitions[service_name].get('count', 1)
         for i in range(count):
-            logger.info("Starting service... (name: %s, port: %s)", service_name, port)
-            log_file = open(state_dir_path + "/logs/" + service_name + "." + str(i) + ".log", "w+")
+            logger.info("Starting service instance (name: %s, port: %s)", service_name, port)
+            log_file = open(arch_state_dir + "/logs/" + service_name + "." + str(i) + ".log", "w+")
             proc = subprocess.Popen([sys.executable, 'microcosm.py', '--http-port=' + str(port), service_config_file],
                                     env=os.environ.copy(),
                                     shell=False,
@@ -131,14 +162,38 @@ def run_controller(args):
                                     universal_newlines=True)
 
             if service_name not in pid_map:
-                pid_map[service_name] = [proc.pid]
+                pid_map[service_name] = [{'pid': proc.pid}]
             else:
-                pid_map[service_name].append(proc.pid)
+                pid_map[service_name].append({'pid': proc.pid})
 
             port += 1
 
-    with open(pid_map_file, 'w+') as f:
-        yaml.dump(pid_map, f)
+    arch_state['running_services'] = pid_map
+    update_state(arch['name'], arch_state)
+
+
+def run_controller(args):
+    arch = None
+    arch_name = args.get('<architecture-name>', None)
+    if args['<architecture-file>']:
+        arch_file = args['<architecture-file>']
+        arch_name = os.path.splitext(os.path.basename(arch_file))[0]
+        logger.info("Loading architecture: %s", arch_name)
+        arch = load_architecture(arch_file)
+        arch['name'] = arch_name
+
+    arch_state_dir = setup_state_dir(arch_name)
+    arch_state_file = "{}/state.json".format(arch_state_dir)
+    arch_state = {}
+    with open(arch_state_file, 'r') as f:
+        arch_state = json.load(f)
+
+    if args['create']:
+        create(args, arch, arch_state, arch_state_dir)
+    elif args['destroy']:
+        destroy(args, arch_state)
+    elif args['refresh']:
+        pass
 
     exit()
 
