@@ -69,3 +69,18 @@ services:
     dependencies: []
 ```
 
+# Further reading
+
+Every microservices application is composed of three kinds of services:
+
+* Edge services: publically addressable services that build on other
+services to provide value directly to the end users of the
+microservices app
+
+* Intermediate services: services designed primarily for internal use
+that build on and combine what other services provide
+
+* Foundational services: services that do not have any dependencies
+
+The [Spigo project](https://github.com/adrianco/spigo) lets you
+simulate interactions between services.
