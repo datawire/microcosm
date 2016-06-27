@@ -17,11 +17,13 @@
 """microcosm.py
 
 Usage:
-    microcosm.py <config>
+    microcosm.py [options] <config>
     microcosm.py (-h | --help)
     microcosm.py --version
 
 Options:
+    --http-port <port>  The http port to listen on.
+    --http-addr <addr>  The http address to bind to [default: 127.0.0.1].
     -h --help           Show the help.
     --version           Show the version.
 """
@@ -35,11 +37,12 @@ import yaml
 from discovery import Discovery, Node
 from docopt import docopt
 from datawire_introspection import Platform, DatawireToken
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from uuid import uuid4
 
 dependencies = []
 discovery = Discovery()
+node_id = None
 
 app = Flask(__name__)
 
@@ -97,15 +100,24 @@ def configure_dependencies(deps):
 def is_foundational():
     return len(dependencies) == 0
 
-node_id = None
+
+def shutdown_server():
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        raise RuntimeError('Not running with the Werkzeug Server')
+    func()
+
 
 @app.route('/', methods=['POST', 'GET'])
 def process_request():
     request_id = str(uuid4())
     app.logger.info(RECV_REQUEST_MSG, request_id)
-    result = []
 
-    result.append({'node_id': node_id, 'request_id': request_id})
+    result = {
+        'node_id': node_id,
+        'request_id': request_id,
+        'requests': []
+    }
 
     for service in dependencies:
         node = discovery.resolve(service)
@@ -113,9 +125,8 @@ def process_request():
         response = requests.post('http://{}/'.format(node.address))
         app.logger.info(SENT_DOWNSTREAM_REQUEST, node.service, node.version, node.address)
         responder_data = response.json()
-        responder_node = responder_data[0]
-        app.logger.info(RECV_DOWNSTREAM_RESPONSE_MSG, responder_node['request_id'])
-        result.append(responder_data)
+        app.logger.info(RECV_DOWNSTREAM_RESPONSE_MSG, responder_data['request_id'])
+        result['requests'].append(responder_data)
 
     app.logger.info(SENT_RESPONSE_MSG, request_id)
     return jsonify(result)
@@ -131,12 +142,10 @@ def run_server(args):
 
     configure_dependencies(config.get('dependencies', []))
 
-    app.debug = False
-
     # These are the host and port the HTTP server is listening on and not the routable host and port
     httpd_config = config.get('http_server', {})
     httpd_addr = httpd_config.get('address', '0.0.0.0')
-    httpd_port = int(httpd_config.get('port', 5000))
+    httpd_port = int(httpd_config.get('port', args.get('--http-port', 5000)))
 
     service_host = Platform.getRoutableHost()
     service_port = Platform.getRoutablePort(httpd_port)
@@ -145,7 +154,7 @@ def run_server(args):
 
     node = Node()
     service_name = config.get('service')
-    service_version = config.get('version')
+    service_version = str(config.get('version'))
     node.service = service_name
 
     node.address = '{}:{}'.format(service_host, service_port)
@@ -161,7 +170,7 @@ def run_server(args):
     if not is_foundational():
         app.logger.info(NODE_DEPENDS_ON, ", ".join(dependencies))
 
-    app.run(host=httpd_addr, port=httpd_port)
+    app.run(host=httpd_addr, port=httpd_port, debug=False)
 
 
 def main():

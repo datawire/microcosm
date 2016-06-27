@@ -1,0 +1,23 @@
+---
+name: countdown
+description: richard's countdown example
+version: 1.0
+services:
+  frontend:
+    count: 1
+    dependencies: [time-v1, election, olympics-2016]
+
+  time-v1:
+    version: 1.0
+    count: 3
+
+  time-v2:
+    version: 2.0
+    count: 2
+
+  olympics-2016:
+    version: 1.0
+    count: 3
+
+  election:
+    count: 2
