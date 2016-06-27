@@ -11,13 +11,14 @@ services:
     version: 1.0
     count: 3
 
-  time-v2:
-    version: 2.0
+  time-v1_1:
+    version: 1.1
     count: 2
 
   olympics-2016:
     version: 1.0
     count: 3
+    dependencies: [time-v1]
 
   election:
     count: 2
