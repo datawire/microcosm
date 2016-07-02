@@ -33,15 +33,15 @@ import os
 import re
 import requests
 import yaml
+import mdk
+import atexit
 
-from discovery import Discovery, Node
 from docopt import docopt
-from datawire_introspection import Platform, DatawireToken
 from flask import Flask, jsonify, request
 from uuid import uuid4
 
 dependencies = []
-discovery = Discovery()
+m = mdk.init()
 node_id = None
 
 app = Flask(__name__)
@@ -110,8 +110,14 @@ def shutdown_server():
 
 @app.route('/', methods=['POST', 'GET'])
 def process_request():
-    request_id = str(uuid4())
-    app.logger.info(RECV_REQUEST_MSG, request_id)
+    context = request.headers.get("MDK-Context")
+    if context:
+        m.join_encoded_context(context)
+    else:
+        m.init_context()
+
+    request_id = m.context().encode()
+    m.info("upstream", RECV_REQUEST_MSG % request_id)
 
     result = {
         'node_id': node_id,
@@ -120,17 +126,23 @@ def process_request():
     }
 
     for service in dependencies:
-        node = discovery.resolve(service)
-        node.await(10.0)
-        response = requests.post('http://{}/'.format(node.address))
-        app.logger.info(SENT_DOWNSTREAM_REQUEST, node.service, node.version, node.address)
+        # XXX: we need to add versioning both to config and make
+        # resolve pay attention to it
+        node = m.resolve(service, "<ignored-version>")
+        response = requests.post(node.address, headers={"MDK-Context": request_id})
+        m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
         responder_data = response.json()
-        app.logger.info(RECV_DOWNSTREAM_RESPONSE_MSG, responder_data['request_id'])
+        m.info("downstream", RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
         result['requests'].append(responder_data)
 
-    app.logger.info(SENT_RESPONSE_MSG, request_id)
+    m.info("upstream", SENT_RESPONSE_MSG % request_id)
     return jsonify(result)
 
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    import traceback
+    m.error("exception", traceback.format_exc(e))
+    return render_template('500.htm'), 500
 
 def run_server(args):
 
@@ -147,31 +159,23 @@ def run_server(args):
     httpd_addr = httpd_config.get('address', '0.0.0.0')
     httpd_port = int(httpd_config.get('port', args.get('--http-port', 5000)))
 
-    service_host = Platform.getRoutableHost()
-    service_port = Platform.getRoutablePort(httpd_port)
-
-    discovery.withToken(DatawireToken.getToken())
-
-    node = Node()
-    service_name = config.get('service')
-    service_version = str(config.get('version'))
-    node.service = service_name
-
-    node.address = '{}:{}'.format(service_host, service_port)
-    node.version = config.get('version')
+    service = config.get('service')
+    version = str(config.get('version'))
+    address = 'http://{}:{}'.format(httpd_addr, httpd_port)
 
     global node_id
-    node_id = "%s[%s, %s]" % (node.service, node.address, node.version)
+    node_id = "%s[%s, %s]" % (service, version, address)
 
-    discovery.connect().start()
-    discovery.register(node)
-    app.logger.info(NODE_REGISTERED, service_name, service_version, node.address)
+    m.register(service, version, address)
+    m.start()
+    atexit.register(m.stop)
+
+    m.info("boot", NODE_REGISTERED % (service, version, address))
 
     if not is_foundational():
-        app.logger.info(NODE_DEPENDS_ON, ", ".join(dependencies))
+        m.info("boot", NODE_DEPENDS_ON % ", ".join(dependencies))
 
     app.run(host=httpd_addr, port=httpd_port, debug=False)
-
 
 def main():
     exit(run_server(docopt(__doc__, version="microcosm.py 0.0.1")))

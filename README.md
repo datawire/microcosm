@@ -6,7 +6,7 @@ Microcosm lets a user simulate 1 or more microservices that are connected togeth
 
 Install the Datawire MDK if you have not already done so:
 
-`curl -sL https://raw.githubusercontent.com/datawire/mdk/master/install.sh | bash -s -- --python develop`
+`curl -sL https://raw.githubusercontent.com/datawire/mdk/develop/install.sh | bash -s -- --python develop`
 
 # Usage
 
@@ -17,17 +17,19 @@ Install the Datawire MDK if you have not already done so:
 
 2. Launch a scenario. The simple scenario launches 5 microservices.
 
-   `python microcosmctl.py create scenarios/countdown.yml`
+   `python microcosmctl.py run scenarios/countdown.yml`
 
-3. Connect to the edge microservice and get the result. Generally this printed as the last deployed service by the `microcosmctl.py` tool.
+3. Connect to the edge microservice and get the result. Generally this is printed as the first deployed service by the `microcosmctl.py` tool.
 
    `curl http://127.0.0.1:5000`
    
 ## Terminating the Architecture
 
-The entire architecture can be terminated by using the following command:
+When using the 'run' subcommand the microcosmctl will remain active
+while all its subprocesses are running. You can terminate the entire
+architecture and all its subprocesses by using control-C.
 
-    `python microcosmctl.py destroy countdown`
+## Testing the Architecture
 
 In the simple scenario, if you repeatedly connect to the edge service,
 you'll see that it load balances automatically between 3 different

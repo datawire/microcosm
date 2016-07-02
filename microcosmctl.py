@@ -17,27 +17,14 @@
 """microcosmctl.py
 
 Usage:
-    microcosmctl.py create  <architecture-file>
-    microcosmctl.py destroy <architecture-name>
+    microcosmctl.py run  <architecture-file>
     microcosmctl.py (-h | --help)
     microcosmctl.py --version
 
 Options:
-    -h --help           Show the help.
-    --version           Show the version.
-"""
-
-"""microcosmctl.py
-
-Usage:
-    microcosmctl.py deploy <architecture-file>
-    microcosmctl.py kill   <architecture>
-    microcosmctl.py (-h | --help)
-    microcosmctl.py --version
-
-Options:
-    -h --help           Show the help.
-    --version           Show the version.
+    -h --help             Show the help.
+    --version             Show the version.
+    --timeout=<seconds>   Timeout in seconds.
 """
 
 import errno
@@ -49,22 +36,17 @@ import yaml
 import json
 import logging
 import signal
+import mdk
+import atexit
+import time
 
+from collections import OrderedDict
 from docopt import docopt
-from toposort import toposort, toposort_flatten
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s")
 logger = logging.getLogger('microcosmctl.py')
 
-
-def load_architecture(path):
-
-    """Reads a Microcosm configuration file.
-
-    :param path: the path to the configuration file
-    :return: a dictionary containing configuration values
-    """
-
+def load_yaml(path):
     # configure the yaml parser to allow grabbing OS environment variables in the config.
     # TODO(plombardi:) Improve so that the default argument is optional
     pattern = re.compile(r'^(.*)<%= ENV\[\'(.*)\',\'(.*)\'\] %>(.*)$')
@@ -80,120 +62,165 @@ def load_architecture(path):
     with open(path, 'r') as stream:
         return yaml.load(stream)
 
+class Architecture:
 
-def setup_state_dir(arch_name):
-    path = ".microcosm/{}".format(arch_name)
-    try:
-        logger.info("Initializing architecture state directory (path: %s)", path)
-        os.makedirs(path)
-        os.makedirs("{}/logs".format(path))
-        if not os.path.exists("{}/state.json".format(path)):
-            logger.info("Initializing empty state file...")
-            with open("{}/state.json".format(path), 'w+') as f:
-                f.write('{}')
+    @staticmethod
+    def load(path):
+        """
+        Reads a Microcosm configuration file.
 
-    except OSError:
-        if not os.path.isdir(path):
-            raise
+        :param path: the path to the configuration file :return: a
+        dictionary containing configuration values
+        """
+        name = os.path.splitext(os.path.basename(path))[0]
+        return Architecture(name, load_yaml(path))
 
-    return path
+    def __init__(self, name, arch):
+        self.name = name
+        self.services = OrderedDict()
+        svcs = arch.get("services", {}).items()
+        if len(svcs) < 1:
+            raise ValueError('Missing or empty "services" key. Define at least one service to continue')
 
+        for name, dfn in svcs:
+            self.services[name] = Service(self, name, dfn)
+        for name, dfn in svcs:
+            self.services[name]._deps(dfn.get("dependencies", []))
+        self.state_dir = ".microcosm/{}".format(self.name)
 
-def update_state(arch_name, state):
-    path = ".microcosm/{}/state.json".format(arch_name)
-    with open(path, 'w+') as f:
-        json.dump(state, f, indent=4)
+    def setup_state_dir(self):
+        try:
+            logger.info("Initializing architecture state directory (path: %s)", self.state_dir)
+            os.makedirs(self.state_dir)
+        except OSError:
+            if not os.path.isdir(self.state_dir):
+                raise
 
+    def ordered(self):
+        edges = []
+        internal = []
+        for svc in self.services.values():
+            if svc.edge():
+                edges.append(svc)
+            else:
+                internal.append(svc)
+        return edges + internal
 
-def destroy(args, state):
-    logger.info("Destroying architecture (name: %s)", args['<architecture-name>'])
-    running_services = state['running_services']
-    for name, infos in running_services.iteritems():
-        for info in running_services[name]:
-            logger.info("Terminating service instance (name: %s, slug: %s)", name, info['pid'])
-            os.kill(int(info['pid']), signal.SIGKILL)
+    def shutdown(self):
+        for svc in self.services.values():
+            svc.shutdown()
 
-    state['running_services'] = {}
-    update_state(args['<architecture-name>'], state)
+    def wait(self):
+        for svc in self.services.values():
+            svc.wait()
 
+class Service:
 
-def create(args, arch, arch_state, arch_state_dir):
-    service_definitions = arch.get('services', {})
-    if len(service_definitions) < 1:
-        raise ValueError("""Architecture definition "{}" is missing "services" or has an empty "services" key. Define
-        at least one service to continue""")
+    def __init__(self, arch, name, dfn):
+        self.arch = arch
+        self.name = name
+        self.version = str(dfn.get("version", "1.0"))
+        self.count = dfn.get("count", 1)
+        self.processes = []
 
-    deploy_graph = {}
-    for service_name, service_definition in service_definitions.iteritems():
-        deploy_graph[service_name] = set(service_definition.get('dependencies', {}))
+    def _deps(self, deps):
+        self.dependencies = [self.arch.services[name] for name in deps]
 
-    deploy_graph = list(toposort_flatten(deploy_graph))
+    def edge(self):
+        for c in self.clients():
+            return False
+        else:
+            return True
 
-    # Iterate over the deployment graph and start a microcosm process for each service described. This code is a little
-    # clumsy right now because we're retrofitting microcosmctl.py to work with microcosm.py by using it's config file.
+    def clients(self):
+        for svc in self.arch.services.values():
+            if self in svc.dependencies:
+                yield svc
 
-    port = 5000
-    pid_map = {}
-    for service_name in deploy_graph:
-        service_config = {
-            'service': str(service_name),
-            'version': str(service_definitions[service_name].get('version', '1.0')),
-            'dependencies': service_definitions[service_name].get('dependencies', []),
-            'http_service': {
+    def shutdown(self):
+        for proc in self.processes:
+            proc.send_signal(signal.SIGINT)
+
+    def wait(self):
+        for proc in self.processes:
+            logger.info("%s instance[%s] exited: %s", self.name, proc.pid, proc.wait())
+
+    def config(self, port):
+        return {
+            'service': self.name,
+            'version': self.version,
+            'dependencies': [d.name for d in self.dependencies],
+            'http_server': {
                 'address': '127.0.0.1',
+                'port': port
             }
         }
 
-        service_config_file = arch_state_dir + '/' + service_name + '.yml'
-        with open(service_config_file, 'w+') as f:
-            yaml.dump(service_config, f)
+    def launch(self, port):
+        logger.info("Launching %s[%s] on %s", self.name, self.version, port)
+        config = self.config(port)
 
-        count = service_definitions[service_name].get('count', 1)
-        for i in range(count):
-            logger.info("Starting service instance (name: %s, port: %s)", service_name, port)
-            log_file = open(arch_state_dir + "/logs/" + service_name + "." + str(i) + ".log", "w+")
-            proc = subprocess.Popen([sys.executable, 'microcosm.py', '--http-port=' + str(port), service_config_file],
-                                    env=os.environ.copy(),
-                                    shell=False,
-                                    stdout=log_file,
-                                    stderr=subprocess.STDOUT,
-                                    preexec_fn=os.setpgrp,
-                                    close_fds=True,
-                                    universal_newlines=True)
+        config_file = os.path.join(self.arch.state_dir, "%s-%s.yml" % (self.name, port))
+        with open(config_file, 'w+') as f:
+            yaml.dump(config, f)
 
-            if service_name not in pid_map:
-                pid_map[service_name] = [{'pid': proc.pid}]
-            else:
-                pid_map[service_name].append({'pid': proc.pid})
+        log_file = open(os.path.join(self.arch.state_dir, "%s-%s.log" % (self.name, port)), "w+")
 
+        proc = subprocess.Popen([sys.executable, 'microcosm.py', config_file],
+                                env=os.environ.copy(),
+                                shell=False,
+                                stdout=log_file,
+                                stderr=subprocess.STDOUT,
+                                preexec_fn=os.setpgrp,
+                                close_fds=True,
+                                universal_newlines=True)
+
+        pid_file = os.path.join(self.arch.state_dir, "%s-%s.pid" % (self.name, port))
+        with open(pid_file, 'w+') as f:
+            f.write("%s\n" % proc.pid)
+
+        self.processes.append(proc)
+
+def run(args):
+    arch_file = args['<architecture-file>']
+    logger.info("Loading architecture: %s", arch_file)
+    arch = Architecture.load(arch_file)
+
+    m = mdk.init()
+    m.start()
+    atexit.register(m.stop)
+    disco = m._disco
+
+    # Wait to learn about what is out there, this could be a lot
+    # smarter and actually respawn stuff, but that can wait...
+    timeout = float(args.get("--timeout", 3.0))
+    time.sleep(timeout)
+
+    arch.setup_state_dir()
+
+    port = 5000
+    for svc in arch.ordered():
+        cluster = disco.services.get(svc.name, None)
+        if cluster:
+            delta = svc.count - len(cluster.nodes)
+        else:
+            delta = svc.count
+
+        for i in range(delta):
+            svc.launch(port)
             port += 1
 
-    arch_state['running_services'] = pid_map
-    update_state(arch['name'], arch_state)
-
+    try:
+        arch.wait()
+    except KeyboardInterrupt:
+        arch.shutdown()
+        arch.wait()
 
 def run_controller(args):
-    arch = None
-    arch_name = args.get('<architecture-name>', None)
-    if args['<architecture-file>']:
-        arch_file = args['<architecture-file>']
-        arch_name = os.path.splitext(os.path.basename(arch_file))[0]
-        logger.info("Loading architecture: %s", arch_name)
-        arch = load_architecture(arch_file)
-        arch['name'] = arch_name
-
-    arch_state_dir = setup_state_dir(arch_name)
-    arch_state_file = "{}/state.json".format(arch_state_dir)
-    arch_state = {}
-    with open(arch_state_file, 'r') as f:
-        arch_state = json.load(f)
-
-    if args['create']:
-        create(args, arch, arch_state, arch_state_dir)
-    elif args['destroy']:
-        destroy(args, arch_state)
-    elif args['refresh']:
-        pass
+    if args['run']:
+        run(args)
+    else:
+        assert False
 
     exit()
 
