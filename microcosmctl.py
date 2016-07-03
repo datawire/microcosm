@@ -17,7 +17,7 @@
 """microcosmctl.py
 
 Usage:
-    microcosmctl.py run  <architecture-file>
+    microcosmctl.py run  <architecture-file> [ --timeout=<seconds> ]
     microcosmctl.py (-h | --help)
     microcosmctl.py --version
 
@@ -87,6 +87,7 @@ class Architecture:
         for name, dfn in svcs:
             self.services[name]._deps(dfn.get("dependencies", []))
         self.state_dir = ".microcosm/{}".format(self.name)
+        self.port = 5000
 
     def setup_state_dir(self):
         try:
@@ -105,6 +106,19 @@ class Architecture:
             else:
                 internal.append(svc)
         return edges + internal
+
+    def refresh(self, disco):
+        for svc in self.ordered():
+            cluster = disco.services.get(svc.name, None)
+            if cluster:
+                delta = svc.count - len(cluster.nodes)
+            else:
+                delta = svc.count
+
+            for i in range(delta):
+                svc.launch(self.port)
+                self.port += 1
+
 
     def shutdown(self):
         for svc in self.services.values():
@@ -197,18 +211,7 @@ def run(args):
     time.sleep(timeout)
 
     arch.setup_state_dir()
-
-    port = 5000
-    for svc in arch.ordered():
-        cluster = disco.services.get(svc.name, None)
-        if cluster:
-            delta = svc.count - len(cluster.nodes)
-        else:
-            delta = svc.count
-
-        for i in range(delta):
-            svc.launch(port)
-            port += 1
+    arch.refresh(disco)
 
     try:
         arch.wait()
