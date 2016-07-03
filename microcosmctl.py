@@ -207,7 +207,7 @@ def run(args):
 
     # Wait to learn about what is out there, this could be a lot
     # smarter and actually respawn stuff, but that can wait...
-    timeout = float(args.get("--timeout", 3.0))
+    timeout = float(args["--timeout"] or 3.0)
     time.sleep(timeout)
 
     arch.setup_state_dir()
