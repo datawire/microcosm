@@ -30,15 +30,14 @@ Options:
 
 import logging
 import os
-import re
 import requests
-import yaml
 import mdk
 import atexit
 
 from docopt import docopt
 from flask import Flask, jsonify, request
 from uuid import uuid4
+from microutil import name_version, load_yaml
 
 dependencies = []
 m = mdk.init()
@@ -54,30 +53,6 @@ RECV_DOWNSTREAM_RESPONSE_MSG = "--> downstream response (id: %s)"
 SENT_RESPONSE_MSG            = "<-- response            (id: %s)"
 
 
-def load_config(path):
-
-    """Reads a Microcosm configuration file.
-
-    :param path: the path to the configuration file
-    :return: a dictionary containing configuration values
-    """
-
-    # configure the yaml parser to allow grabbing OS environment variables in the config.
-    # TODO(plombardi:) Improve so that the default argument is optional
-    pattern = re.compile(r'^(.*)<%= ENV\[\'(.*)\',\'(.*)\'\] %>(.*)$')
-    yaml.add_implicit_resolver('!env_regex', pattern)
-
-    def env_regex(loader, doc_node):
-        value = loader.construct_scalar(doc_node)
-        front, variable_name, default, back = pattern.match(value).groups()
-        return str(front) + os.getenv(variable_name, default) + str(back)
-
-    yaml.add_constructor('!env_regex', env_regex)
-
-    with open(path, 'r') as stream:
-        return yaml.load(stream)
-
-
 def disable_noisy_loggers(loggers):
     for logger_name in loggers:
         logger = logging.getLogger(logger_name)
@@ -88,11 +63,11 @@ def configure_dependencies(deps):
     global dependencies
     if isinstance(deps, basestring):
         if deps:
-            dependencies = deps.split(",")
+            dependencies = [name_version(d) for d in deps.split(",")]
         else:
             pass
     elif isinstance(deps, list):
-        dependencies = deps
+        dependencies = [name_version(d) for d in deps]
     else:
         raise TypeError("Invalid config 'dependencies' format. Must either be a list or comma-separated string.")
 
@@ -125,10 +100,8 @@ def process_request():
         'requests': []
     }
 
-    for service in dependencies:
-        # XXX: we need to add versioning both to config and make
-        # resolve pay attention to it
-        node = m.resolve(service, "<ignored-version>")
+    for service, version in dependencies:
+        node = m.resolve(service, version)
         response = requests.post(node.address, headers={"MDK-Context": request_id})
         m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
         responder_data = response.json()
@@ -147,7 +120,7 @@ def unhandled_exception(e):
 def run_server(args):
 
     config_file = args['<config>']
-    config = load_config(config_file)
+    config = load_yaml(config_file)
 
     disable_noisy_loggers(['werkzeug', 'quark.discovery', 'requests', 'urllib3'])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -173,7 +146,7 @@ def run_server(args):
     m.info("boot", NODE_REGISTERED % (service, version, address))
 
     if not is_foundational():
-        m.info("boot", NODE_DEPENDS_ON % ", ".join(dependencies))
+        m.info("boot", NODE_DEPENDS_ON % ", ".join(map(str, dependencies)))
 
     app.run(host=httpd_addr, port=httpd_port, debug=False)
 

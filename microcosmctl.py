@@ -29,38 +29,22 @@ Options:
 
 import errno
 import os
-import re
 import subprocess
 import sys
-import yaml
-import json
 import logging
 import signal
 import mdk
 import atexit
 import time
+import mdk_util
+import yaml
 
 from collections import OrderedDict
 from docopt import docopt
+from microutil import name_version, load_yaml
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s")
 logger = logging.getLogger('microcosmctl.py')
-
-def load_yaml(path):
-    # configure the yaml parser to allow grabbing OS environment variables in the config.
-    # TODO(plombardi:) Improve so that the default argument is optional
-    pattern = re.compile(r'^(.*)<%= ENV\[\'(.*)\',\'(.*)\'\] %>(.*)$')
-    yaml.add_implicit_resolver('!env_regex', pattern)
-
-    def env_regex(loader, doc_node):
-        value = loader.construct_scalar(doc_node)
-        front, variable_name, default, back = pattern.match(value).groups()
-        return str(front) + os.getenv(variable_name, default) + str(back)
-
-    yaml.add_constructor('!env_regex', env_regex)
-
-    with open(path, 'r') as stream:
-        return yaml.load(stream)
 
 class Architecture:
 
@@ -82,12 +66,20 @@ class Architecture:
         if len(svcs) < 1:
             raise ValueError('Missing or empty "services" key. Define at least one service to continue')
 
-        for name, dfn in svcs:
-            self.services[name] = Service(self, name, dfn)
-        for name, dfn in svcs:
-            self.services[name]._deps(dfn.get("dependencies", []))
+        for namever, dfn in svcs:
+            name, ver = name_version(namever)
+            self.services[(name, ver)] = Service(self, name, ver, dfn)
+        for namever, dfn in svcs:
+            name, ver = name_version(namever)
+            self.services[(name, ver)]._deps(dfn.get("dependencies", []))
         self.state_dir = ".microcosm/{}".format(self.name)
         self.port = 5000
+
+    def resolve(self, required_name, required_version):
+        for (name, version), svc in self.services.items():
+            if required_name == name and mdk_util.versionMatch(required_version, version):
+                return svc
+        raise ValueError("no such service/version: %s, %s" % (required_name, required_version))
 
     def setup_state_dir(self):
         try:
@@ -130,15 +122,18 @@ class Architecture:
 
 class Service:
 
-    def __init__(self, arch, name, dfn):
+    def __init__(self, arch, name, version, dfn):
         self.arch = arch
         self.name = name
-        self.version = str(dfn.get("version", "1.0"))
+        self.version = version
         self.count = dfn.get("count", 1)
         self.processes = []
 
     def _deps(self, deps):
-        self.dependencies = [self.arch.services[name] for name in deps]
+        self.dependencies = []
+        for namever in deps:
+            name, version = name_version(namever)
+            self.dependencies.append(self.arch.resolve(name, version))
 
     def edge(self):
         for c in self.clients():
@@ -163,7 +158,7 @@ class Service:
         return {
             'service': self.name,
             'version': self.version,
-            'dependencies': [d.name for d in self.dependencies],
+            'dependencies': ["%s %s" % (d.name, d.version) for d in self.dependencies],
             'http_server': {
                 'address': '127.0.0.1',
                 'port': port

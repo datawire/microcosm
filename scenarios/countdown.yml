@@ -3,21 +3,19 @@ description: richard's countdown example
 version: 1.0
 services:
   frontend:
+    dependencies: [time, election, olympics-2016]
     count: 1
-    dependencies: [time-v1, election, olympics-2016]
 
-  time-v1:
-    version: 1.0
-    count: 3
-
-  time-v1_1:
-    version: 1.1
+  election:
+    dependencies: [time]
     count: 2
 
   olympics-2016:
-    version: 1.0
+    dependencies: [time 1.1]
     count: 3
-    dependencies: [time-v1]
 
-  election:
+  time 1.0:
+    count: 3
+
+  time 1.1:
     count: 2
