@@ -3,6 +3,7 @@
 
 # --- Python ---
 venv
+*.pyc
 
 # --- Microcosm ---
 .microcosm
