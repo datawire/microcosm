@@ -33,6 +33,7 @@ import os
 import requests
 import mdk
 import atexit
+import traceback
 
 from docopt import docopt
 from flask import Flask, jsonify, request
@@ -101,12 +102,18 @@ def process_request():
     }
 
     for service, version in dependencies:
-        node = m.resolve(service, version)
-        response = requests.post(node.address, headers={"MDK-Context": request_id})
-        m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
-        responder_data = response.json()
-        m.info("downstream", RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
-        result['requests'].append(responder_data)
+        try:
+            m.start_interaction()
+            node = m.resolve(service, version)
+            response = requests.post(node.address, headers={"MDK-Context": request_id}, timeout=3.0)
+            m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
+            responder_data = response.json()
+            m.info("downstream", RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
+            result['requests'].append(responder_data)
+            m.finish_interaction()
+        except:
+            m.fail("error getting downstream data: " + traceback.format_exc())
+            result['requests'].append("ERROR(%s)" % node.toString())
 
     m.info("upstream", SENT_RESPONSE_MSG % request_id)
     return jsonify(result)
