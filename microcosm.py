@@ -86,7 +86,7 @@ def shutdown_server():
 
 @app.route('/', methods=['POST', 'GET'])
 def process_request():
-    context = request.headers.get("MDK-Context")
+    context = request.headers.get("X-MDK-Context")
     if context:
         m.join_encoded_context(context)
     else:
@@ -105,7 +105,7 @@ def process_request():
         try:
             m.start_interaction()
             node = m.resolve(service, version)
-            response = requests.post(node.address, headers={"MDK-Context": request_id}, timeout=3.0)
+            response = requests.post(node.address, headers={"X-MDK-Context": request_id}, timeout=3.0)
             m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
             responder_data = response.json()
             m.info("downstream", RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
