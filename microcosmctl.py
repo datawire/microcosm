@@ -116,9 +116,14 @@ class Architecture:
         for svc in self.services.values():
             svc.shutdown()
 
+    def kill(self):
+        for svc in self.services.values():
+            svc.kill()
+
     def wait(self):
         for svc in self.services.values():
             svc.wait()
+
 
 class Service:
 
@@ -149,6 +154,10 @@ class Service:
     def shutdown(self):
         for proc in self.processes:
             proc.send_signal(signal.SIGINT)
+
+    def kill(self):
+        for proc in self.processes:
+            proc.send_signal(signal.SIGKILL)
 
     def wait(self):
         for proc in self.processes:
@@ -212,7 +221,11 @@ def run(args):
         arch.wait()
     except KeyboardInterrupt:
         arch.shutdown()
-        arch.wait()
+        try:
+            arch.wait()
+        except KeyboardInterrupt:
+            arch.kill()
+            arch.wait()
 
 def run_controller(args):
     if args['run']:
