@@ -2,4 +2,3 @@ docopt
 requests
 flask
 pyyaml
-toposort
