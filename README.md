@@ -16,6 +16,7 @@ Install the Datawire MDK if you have not already done so:
    `export DATAWIRE_TOKEN='your_token_here'`
 
 2. Install the required Python packages.
+
    `pip install -r requirements.txt`
 
 3. Launch a scenario. The simple scenario launches 5 microservices.
