@@ -43,6 +43,7 @@ from microutil import name_version, load_yaml
 dependencies = []
 m = mdk.init()
 node_id = None
+service_name = None
 
 app = Flask(__name__)
 
@@ -86,14 +87,9 @@ def shutdown_server():
 
 @app.route('/', methods=['POST', 'GET'])
 def process_request():
-    context = request.headers.get("X-MDK-Context")
-    if context:
-        m.join_encoded_context(context)
-    else:
-        m.init_context()
-
-    request_id = m.context().encode()
-    m.info("upstream", RECV_REQUEST_MSG % request_id)
+    ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
+    request_id = ssn.inject()
+    ssn.info(service_name, RECV_REQUEST_MSG % request_id)
 
     result = {
         'node_id': node_id,
@@ -103,26 +99,20 @@ def process_request():
 
     for service, version in dependencies:
         try:
-            m.start_interaction()
-            node = m.resolve(service, version)
-            response = requests.post(node.address, headers={"X-MDK-Context": request_id}, timeout=3.0)
-            m.info("downstream", SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
+            ssn.start_interaction()
+            node = ssn.resolve(service, version)
+            response = requests.post(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
+            ssn.info(service_name, SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
             responder_data = response.json()
-            m.info("downstream", RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
+            ssn.info(service_name, RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
             result['requests'].append(responder_data)
-            m.finish_interaction()
+            ssn.finish_interaction()
         except:
-            m.fail("error getting downstream data: " + traceback.format_exc())
+            ssn.fail_interaction("error getting downstream data: " + traceback.format_exc())
             result['requests'].append("ERROR(%s)" % node.toString())
 
-    m.info("upstream", SENT_RESPONSE_MSG % request_id)
+    ssn.info(service_name, SENT_RESPONSE_MSG % request_id)
     return jsonify(result)
-
-@app.errorhandler(Exception)
-def unhandled_exception(e):
-    import traceback
-    m.error("exception", traceback.format_exc(e))
-    return render_template('500.htm'), 500
 
 def run_server(args):
 
@@ -143,17 +133,19 @@ def run_server(args):
     version = str(config.get('version'))
     address = 'http://{}:{}'.format(httpd_addr, httpd_port)
 
-    global node_id
+    global node_id, service_name
     node_id = "%s[%s, %s]" % (service, version, address)
+    service_name = service
 
     m.register(service, version, address)
     m.start()
     atexit.register(m.stop)
 
-    m.info("boot", NODE_REGISTERED % (service, version, address))
+    ssn = m.session()
+    ssn.info(service_name, NODE_REGISTERED % (service, version, address))
 
     if not is_foundational():
-        m.info("boot", NODE_DEPENDS_ON % ", ".join(map(str, dependencies)))
+        ssn.info(service_name, NODE_DEPENDS_ON % ", ".join(map(str, dependencies)))
 
     app.run(host=httpd_addr, port=httpd_port, debug=False)
 
