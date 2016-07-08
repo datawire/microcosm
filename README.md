@@ -15,11 +15,14 @@ Install the Datawire MDK if you have not already done so:
 
    `export DATAWIRE_TOKEN='your_token_here'`
 
-2. Launch a scenario. The simple scenario launches 5 microservices.
+2. Install the required Python packages.
+   `pip install -r requirements.txt`
+
+3. Launch a scenario. The simple scenario launches 5 microservices.
 
    `python microcosmctl.py run scenarios/countdown.yml`
 
-3. Connect to the edge microservice and get the result. Generally this is printed as the first deployed service by the `microcosmctl.py` tool.
+4. Connect to the edge microservice and get the result. Generally this is printed as the first deployed service by the `microcosmctl.py` tool.
 
    `curl http://127.0.0.1:5000`
    
