@@ -1,7 +1,0 @@
----
-service: time
-version: '1.0'
-dependencies: ''
-http_server:
-  address: 0.0.0.0
-  port: 5020

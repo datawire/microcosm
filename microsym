@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+
+# Copyright 2015 Datawire. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""microsym
+
+Usage:
+    microsym [options] [--dependency=<namever>]...
+    microsym (-h | --help)
+    microsym --version
+
+Options:
+    --service=<namever>              The service name and version to advertise separated by space.
+    -d --dependency=<namever>...     Downstream dependency as a name and optional version separated by space.
+    --host=<host>                    The host to bind to [default: 0.0.0.0].
+    --port=<port>                    The port to listen on [default: 5000].
+    --node=<id>                      The id to use for the node.
+    --config=<file>                  Load config from a yaml file.
+    -h --help                        Show the help.
+    --version                        Show the version.
+"""
+
+import atexit, logging, mdk, requests, traceback
+from docopt import docopt
+from flask import Flask, jsonify, request
+from microutil import name_version, load_yaml
+
+class Config:
+
+    @staticmethod
+    def load(path):
+        """
+        Reads a microsym configuration file.
+
+        :param path: the path to the configuration file :return: a
+        dictionary containing configuration values
+        """
+        return Config(load_yaml(path))
+
+    def __init__(self, yaml):
+        if "service" in yaml and yaml["service"]:
+            self.name, self.version = name_version(yaml.get("service"))
+        else:
+            self.name = None
+            self.version = None
+        self.dependencies = tuple([name_version(d) for d in (yaml.get('dependencies', []) or [])])
+        self.host = yaml.get("host", "0.0.0.0")
+        self.port = yaml.get("port", "5000")
+        self.custom_node = yaml.get("node")
+
+    @property
+    def service(self):
+        return "%s %s" % (self.name, self.version)
+
+    @property
+    def address(self):
+        return "http://%s:%s" % (self.host, self.port)
+
+    @property
+    def node(self):
+        return self.custom_node or "%s:%s" % (self.host, self.port)
+
+    def __str__(self):
+        deps = ", ".join(["%s %s" % d for d in self.dependencies])
+        return "(service: %s, address: %s, node: %s, dependencies: %s)" % \
+            (self.service, self.address, self.node, deps or "none")
+
+app = Flask(__name__)
+m = mdk.init()
+
+def envelope():
+    request.ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
+    ssn = request.ssn
+    request_id = ssn._context.key()
+    ssn.info(config.name, "incoming request %s" % request_id)
+
+    result = {
+        'node_id': config.node,
+        'request_id': request_id,
+        'requests': []
+    }
+
+    for service, version in config.dependencies:
+        ssn.start_interaction()
+        node = ssn.resolve(service, version)
+        try:
+            response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
+            ssn.info(config.name, "initiating request to %s" % node)
+            responder_data = response.json()
+            ssn.info(config.name, "got response %s" % responder_data['request_id'])
+            result['requests'].append(responder_data)
+            ssn.finish_interaction()
+        except:
+            ssn.fail_interaction("error interacting with %s: %s" % (node, traceback.format_exc()))
+            result['requests'].append("ERROR(%s)" % node)
+
+    ssn.info(config.name, "responded to %s" % request_id)
+    return result
+
+@app.route('/')
+def process_request():
+    return jsonify(envelope())
+
+@app.route('/text')
+def text():
+    return render(envelope()).strip() + "\n"
+
+def render(result):
+    if isinstance(result, basestring):
+        return result + "\n"
+    node = result["node_id"]
+    request_id = result["request_id"]
+    requests = "\n".join([render(r) for r in result["requests"]]).replace("\n", "\n  ")
+    return node + "\n  " + requests
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    err = traceback.format_exc(e)
+    request.ssn.error(config.name, err)
+    return err, 500
+
+def run(args):
+
+    yaml = {}
+
+    config_file = args['--config']
+    if config_file:
+        yaml.update(load_yaml(config_file))
+
+    for option in ('--service', '--host', '--port', '--node'):
+        if option in args:
+            key = option[2:]
+            yaml[key] = args[option]
+
+    if '--dependency' in args:
+        yaml["dependencies"] = args['--dependency']
+
+    global config
+    config = Config(yaml)
+
+    if not config.name:
+        raise ValueError("must specify a service name")
+
+    logging.basicConfig(level=logging.INFO)
+
+    m.register(config.name, config.version, config.address)
+    m._disco.threshold = 1
+    m.start()
+    atexit.register(m.stop)
+
+    ssn = m.session()
+    ssn.info(config.name, "starting %s" % config)
+    app.run(host=config.host, port=config.port, threaded=True)
+
+def main():
+    exit(run(docopt(__doc__, version="microsym 1.0")))
+
+if __name__ == '__main__':
+    main()

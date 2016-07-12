@@ -14,12 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""microcosmctl.py
+"""microcosm
 
 Usage:
-    microcosmctl.py run  <architecture-file> [ --timeout=<seconds> ]
-    microcosmctl.py (-h | --help)
-    microcosmctl.py --version
+    microcosm run  <architecture-file> [ --timeout=<seconds> ]
+    microcosm (-h | --help)
+    microcosm --version
 
 Options:
     -h --help             Show the help.
@@ -44,7 +44,7 @@ from docopt import docopt
 from microutil import name_version, load_yaml
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s")
-logger = logging.getLogger('microcosmctl.py')
+logger = logging.getLogger('microcosm')
 
 class Architecture:
 
@@ -72,7 +72,7 @@ class Architecture:
         for namever, dfn in svcs:
             name, ver = name_version(namever)
             self.services[(name, ver)]._deps(dfn.get("dependencies", []))
-        self.state_dir = ".microcosm/{}".format(self.name)
+        self.state_dir = "logs/{}".format(self.name)
         self.port = 5000
 
     def resolve(self, required_name, required_version):
@@ -174,17 +174,19 @@ class Service:
             }
         }
 
+    def microsym_args(self, port):
+        args = ['--host', '127.0.0.1', '--port', str(port), '--service', '%s %s' % (self.name, self.version)]
+        for d in self.dependencies:
+            args.append('-d')
+            args.append('%s %s' % (d.name, d.version))
+        return args
+
     def launch(self, port):
         logger.info("Launching %s[%s] on %s", self.name, self.version, port)
-        config = self.config(port)
-
-        config_file = os.path.join(self.arch.state_dir, "%s-%s.yml" % (self.name, port))
-        with open(config_file, 'w+') as f:
-            yaml.dump(config, f)
 
         log_file = open(os.path.join(self.arch.state_dir, "%s-%s.log" % (self.name, port)), "w+")
 
-        proc = subprocess.Popen([sys.executable, 'microcosm.py', config_file],
+        proc = subprocess.Popen([sys.executable, 'microsym'] + self.microsym_args(port),
                                 env=os.environ.copy(),
                                 shell=False,
                                 stdout=log_file,
@@ -237,7 +239,7 @@ def run_controller(args):
 
 
 def main():
-    exit(run_controller(docopt(__doc__, version='microcosmctl.py 0.0.1')))
+    exit(run_controller(docopt(__doc__, version='microcosm 1.0')))
 
 
 if __name__ == "__main__":

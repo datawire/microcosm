@@ -1,12 +1,14 @@
 # Datawire Microcosm
 
-Microcosm lets a user simulate 1 or more microservices that are connected together in different topologies using the Datawire Microservices Development Kit (MDK).
+Microcosm lets a user simulate 1 or more microservices that are
+connected together in different topologies using the Datawire
+Microservices Development Kit (MDK).
 
 # Setup 
 
 Install the Datawire MDK if you have not already done so:
 
-`curl -sL https://raw.githubusercontent.com/datawire/mdk/develop/install.sh | bash -s -- --python develop`
+`curl -sL https://raw.githubusercontent.com/datawire/mdk/master/install.sh | bash -s -- --python`
 
 # Usage
 
@@ -19,13 +21,20 @@ Install the Datawire MDK if you have not already done so:
 
    `pip install -r requirements.txt`
 
-3. Launch a scenario. The simple scenario launches 5 microservices.
+3. Launch a scenario. The countdown scenario launches 4 services
+   backed by 11 nodes.
 
-   `python microcosmctl.py run scenarios/countdown.yml`
+   `./microcosm run scenarios/countdown.yml`
 
-4. Connect to the edge microservice and get the result. Generally this is printed as the first deployed service by the `microcosmctl.py` tool.
+4. Connect to the frontend microservice and get the result. Generally
+   this is printed as the first deployed service by the microcosm tool.
 
    `curl http://127.0.0.1:5000`
+
+   You can check go to the `/text` variant for a more human readable
+   version:
+
+   `curl http://127.0.0.1:5000/text`
    
 ## Terminating the Architecture
 
@@ -41,7 +50,9 @@ intermediary services.
 
 # Defining Architectures
 
-Defining an architecture file is very simple and uses an easy to read and edit YAML format. Every file should start out with the following structure:
+Defining an architecture file is very simple and uses an easy to read
+and edit YAML format. Every file should start out with the following
+structure:
 
 ```yaml
 ---
@@ -49,35 +60,40 @@ description: <a brief description of your simulation>
 version: <architecture version>
 ```
 
-To define the actual topology users should add `services` dictionary to the YAML document such that the doc looks similar to this:
+To define the actual topology users should add `services` to the YAML
+document such that the doc looks similar to this:
 
 ```yaml
 description: <a brief description of your simulation>
 version: <architecture version>
 services:
-  frontend:
-    count:1
+  <service-name> <service-version>:
+    dependencies: [<dep1-name> <dep1-version>, <dep2-name> <dep2-version, ...]
+    count: <instance-count>
 ```
 
-The entries in the `services` dictionary define the topology. For example to model a very basic web server and database service use the following model:
+The entries in the `services` structure define the topology. For
+example to model a very basic web server and database service use the
+following model:
 
 ```yaml
 description: <a brief description of your simulation>
 version: <architecture version>
 services:
-  frontend:
-    version: 1.0
+  frontend 1.0:
     count: 1
-    dependencies: [database]
-  contacts_service:
-    version: 1.0
+    dependencies: [database 1.0, ratings 1.0]
+  ratings 1.0:
+    dependencies: [database 1.0]
     count: 3
-    dependencies: []
+  database 1.0:
+    count: 1
 ```
 
 # Further reading
 
-Every microservices application is composed of three kinds of services:
+Microservices applications are generally composed of three kinds of
+services:
 
 * Edge services: publically addressable services that build on other
 services to provide value directly to the end users of the

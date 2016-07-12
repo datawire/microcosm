@@ -1,7 +1,0 @@
----
-service: intermediary
-version: '1.0'
-dependencies: foundational
-http_server:
-  address: 0.0.0.0
-  port: 5011

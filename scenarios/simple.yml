@@ -1,0 +1,14 @@
+---
+description: simple topology
+version: 1.0
+services:
+  edge 1.0:
+    dependencies: [intermediary 1.0]
+    count: 1
+
+  intermediary 1.0:
+    dependencies: [foundational 1.0]
+    count: 3
+
+  foundational 1.0:
+    count: 1

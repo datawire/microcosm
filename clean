@@ -1,0 +1,10 @@
+#!/bin/bash
+
+PIDS=$(ps waxu | fgrep micro | fgrep -v grep | awk '{print $2}')
+
+if [ -n "$PIDS" ]; then
+    echo "Killing $PIDS"
+    kill $PIDS
+else
+    echo "Clean"
+fi
