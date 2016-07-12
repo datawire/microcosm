@@ -88,6 +88,7 @@ def envelope():
 
     result = {
         'node_id': config.node,
+        'content': "%s[%s, %s]" % (config.name, config.version, config.address),
         'request_id': request_id,
         'requests': []
     }
@@ -120,10 +121,10 @@ def text():
 def render(result):
     if isinstance(result, basestring):
         return result + "\n"
-    node = result["node_id"]
+    content = result["content"]
     request_id = result["request_id"]
     requests = "\n".join([render(r) for r in result["requests"]]).replace("\n", "\n  ")
-    return node + "\n  " + requests
+    return content + "\n  " + requests
 
 @app.errorhandler(Exception)
 def unhandled_exception(e):

@@ -26,6 +26,9 @@ Install the Datawire MDK if you have not already done so:
 
    `./microcosm run scenarios/countdown.yml`
 
+   Note that this will launch a number of child processes. Look in
+   'logs/countdown' to see the output.
+
 4. Connect to the frontend microservice and get the result. Generally
    this is printed as the first deployed service by the microcosm tool.
 
