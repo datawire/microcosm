@@ -20,4 +20,4 @@ COPY . /service
 RUN virtualenv /venv && /venv/bin/pip install -r /service/requirements.txt
 RUN . /venv/bin/activate; curl -sL https://raw.githubusercontent.com/datawire/mdk/master/install.sh | bash -s --
 
-CMD ["/venv/bin/python", "microcosm.py", "service.yml"]
+CMD ["/venv/bin/python", "microsym", "service.yml"]

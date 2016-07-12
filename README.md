@@ -95,17 +95,30 @@ services:
 
 # Further reading
 
-Microservices applications are generally composed of three kinds of
-services:
+Microcosm is designed to make it quick and easy to define and deploy
+an entire mock microservice application.
 
-* Edge services: publically addressable services that build on other
-services to provide value directly to the end users of the
-microservices app
+Every microservices application is composed of three kinds of services:
 
-* Intermediate services: services designed primarily for internal use
-that build on and combine what other services provide
+ - Edge services: publically addressable services that build on other
+   services to provide value directly to the end users of the
+   microservices app
 
-* Foundational services: services that do not have any dependencies
+ - Intermediate services: services designed primarily for internal use
+   that build on and combine what other services provide
 
-The [Spigo project](https://github.com/adrianco/spigo) lets you
+ - Foundational services: services that do not have any dependencies
+
+The 'microsym' webapp is a generic server that can be configured to
+mimic any kind of service. The 'microcosm' script can deploy it to
+mimic any real application topology. You can then drive that topology
+with real traffic.
+
+Each node returns a rollup of all the content from its
+dependencies. You can therefore connect to any point in the topology
+and view the full details of how the request was processed by
+examining the content that was returned.
+
+Much inspiration for this is taken from the
+[Spigo project](https://github.com/adrianco/spigo) project lets you
 simulate interactions between services.
