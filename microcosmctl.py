@@ -103,7 +103,7 @@ class Architecture:
         for svc in self.ordered():
             cluster = disco.services.get(svc.name, None)
             if cluster:
-                delta = svc.count - len(cluster.nodes)
+                delta = svc.count - len([n for n in cluster.nodes if mdk_util.versionMatch(svc.version, n.version)])
             else:
                 delta = svc.count
 

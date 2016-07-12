@@ -85,9 +85,9 @@ def shutdown_server():
     func()
 
 
-@app.route('/', methods=['POST', 'GET'])
-def process_request():
-    ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
+def do_json():
+    request.ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
+    ssn = request.ssn
     request_id = ssn.inject()
     ssn.info(service_name, RECV_REQUEST_MSG % request_id)
 
@@ -98,10 +98,10 @@ def process_request():
     }
 
     for service, version in dependencies:
+        ssn.start_interaction()
+        node = ssn.resolve(service, version)
         try:
-            ssn.start_interaction()
-            node = ssn.resolve(service, version)
-            response = requests.post(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
+            response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
             ssn.info(service_name, SENT_DOWNSTREAM_REQUEST % (node.service, node.version, node.address))
             responder_data = response.json()
             ssn.info(service_name, RECV_DOWNSTREAM_RESPONSE_MSG % responder_data['request_id'])
@@ -109,17 +109,39 @@ def process_request():
             ssn.finish_interaction()
         except:
             ssn.fail_interaction("error getting downstream data: " + traceback.format_exc())
-            result['requests'].append("ERROR(%s)" % node.toString())
+            result['requests'].append("ERROR(%s)" % node)
 
     ssn.info(service_name, SENT_RESPONSE_MSG % request_id)
-    return jsonify(result)
+    return result
+
+@app.route('/')
+def process_request():
+    return jsonify(do_json())
+
+@app.route('/text')
+def text():
+    return render(do_json()).strip() + "\n"
+
+def render(result):
+    if isinstance(result, basestring):
+        return result + "\n"
+    node = result["node_id"]
+    request_id = result["request_id"]
+    requests = "\n".join([render(r) for r in result["requests"]]).replace("\n", "\n  ")
+    return node + "\n  " + requests
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    err = traceback.format_exc(e)
+    request.ssn.error(service_name, err)
+    return err, 500
 
 def run_server(args):
 
     config_file = args['<config>']
     config = load_yaml(config_file)
 
-    disable_noisy_loggers(['werkzeug', 'quark.discovery', 'requests', 'urllib3'])
+    disable_noisy_loggers(['werkzeug', 'requests', 'urllib3'])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     configure_dependencies(config.get('dependencies', []))
@@ -138,6 +160,7 @@ def run_server(args):
     service_name = service
 
     m.register(service, version, address)
+    m._disco.threshold = 1
     m.start()
     atexit.register(m.stop)
 
@@ -147,7 +170,7 @@ def run_server(args):
     if not is_foundational():
         ssn.info(service_name, NODE_DEPENDS_ON % ", ".join(map(str, dependencies)))
 
-    app.run(host=httpd_addr, port=httpd_port, debug=False)
+    app.run(host=httpd_addr, port=httpd_port, debug=False, threaded=True)
 
 def main():
     exit(run_server(docopt(__doc__, version="microcosm.py 0.0.1")))
