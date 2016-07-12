@@ -41,8 +41,8 @@ Install the Datawire MDK if you have not already done so:
    
 ## Terminating the Architecture
 
-When using the 'run' subcommand the microcosmctl will remain active
-while all its subprocesses are running. You can terminate the entire
+When using the 'run' subcommand the microcosm will remain active while
+all its subprocesses are running. You can terminate the entire
 architecture and all its subprocesses by using control-C.
 
 ## Testing the Architecture
