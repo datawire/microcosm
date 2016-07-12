@@ -84,7 +84,7 @@ def envelope():
     request.ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
     ssn = request.ssn
     request_id = ssn._context.key()
-    ssn.info(config.name, "incoming request %s" % request_id)
+    ssn.info(config.name, "%s incoming request %s" % (config.node, request_id))
 
     result = {
         'node_id': config.node,
@@ -98,13 +98,13 @@ def envelope():
         node = ssn.resolve(service, version)
         try:
             response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
-            ssn.info(config.name, "initiating request to %s" % node)
+            ssn.info(config.name, "%s initiating request to %s" % (config.node, node))
             responder_data = response.json()
-            ssn.info(config.name, "got response %s" % responder_data['request_id'])
+            ssn.info(config.name, "%s got response %s" % (config.node, responder_data['request_id']))
             result['requests'].append(responder_data)
             ssn.finish_interaction()
         except:
-            ssn.fail_interaction("error interacting with %s: %s" % (node, traceback.format_exc()))
+            ssn.fail_interaction("%s, %s: %s" % (config.service, config.node, traceback.format_exc()))
             result['requests'].append("ERROR(%s)" % node)
 
     ssn.info(config.name, "responded to %s" % request_id)
