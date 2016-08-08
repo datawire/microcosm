@@ -28,6 +28,7 @@ Options:
     --port=<port>                    The port to listen on [default: 5000].
     --node=<id>                      The id to use for the node.
     --config=<file>                  Load config from a yaml file.
+    --silent                         Do not register with discovery.
     -h --help                        Show the help.
     --version                        Show the version.
 """
@@ -97,9 +98,11 @@ def envelope():
         ssn.start_interaction()
         node = ssn.resolve(service, version)
         try:
-            response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.inject()}, timeout=3.0)
             ssn.info(config.name, "%s initiating request to %s" % (config.node, node))
+            response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.externalize()}, timeout=3.0)
+            ssn.debug(config.name, "about to parse as JSON")
             responder_data = response.json()
+            ssn.debug(config.name, "successfully parsed JSON")
             ssn.info(config.name, "%s got response %s" % (config.node, responder_data['request_id']))
             result['requests'].append(responder_data)
             ssn.finish_interaction()
@@ -129,7 +132,8 @@ def render(result):
 @app.errorhandler(Exception)
 def unhandled_exception(e):
     err = traceback.format_exc(e)
-    request.ssn.error(config.name, err)
+    if getattr(request, "ssn", None):
+        request.ssn.error(config.name, err)
     return err, 500
 
 def run(args):
@@ -156,7 +160,8 @@ def run(args):
 
     logging.basicConfig(level=logging.INFO)
 
-    m.register(config.name, config.version, config.address)
+    if not args['--silent']:
+        m.register(config.name, config.version, config.address)
     m._disco.threshold = 1
     m.start()
     atexit.register(m.stop)
