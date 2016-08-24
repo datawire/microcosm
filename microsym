@@ -162,7 +162,7 @@ def run(args):
 
     if not args['--silent']:
         m.register(config.name, config.version, config.address)
-    m._disco.threshold = 1
+    m._runtime.dependencies.getService("failurepolicy_factory").threshold = 1
     m.start()
     atexit.register(m.stop)
 
