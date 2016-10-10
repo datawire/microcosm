@@ -6,10 +6,6 @@ Microservices Development Kit (MDK).
 
 # Setup 
 
-Install the Datawire MDK if you have not already done so:
-
-`curl -sL https://raw.githubusercontent.com/datawire/mdk/master/install.sh | bash -s -- --python`
-
 # Usage
 
 1. Set DATAWIRE_TOKEN in your environment. The value is accessible
