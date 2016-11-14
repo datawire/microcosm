@@ -108,10 +108,10 @@ def envelope():
             ssn.debug(config.name, "successfully parsed JSON")
             ssn.info(config.name, "%s got response %s" % (config.node, responder_data['request_id']))
             result['requests'].append(responder_data)
-            ssn.finish_interaction()
         except:
             ssn.fail_interaction("%s, %s: %s" % (config.service, config.node, traceback.format_exc()))
             result['requests'].append("ERROR(%s)" % node)
+        ssn.finish_interaction()
 
     ssn.info(config.name, "responded to %s" % request_id)
     return result
