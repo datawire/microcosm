@@ -35,8 +35,9 @@ Options:
 
 import atexit, logging, mdk, requests, traceback
 from docopt import docopt
-from flask import Flask, jsonify, request
+from flask import g, Flask, jsonify, request
 from microutil import name_version, load_yaml
+from mdk.flask import mdk_setup
 
 class Config:
 
@@ -79,7 +80,7 @@ class Config:
             (self.service, self.address, self.node, deps or "none")
 
 app = Flask(__name__)
-m = mdk.init()
+m = mdk_setup(app)
 
 def envelope():
     request.ssn = m.join(request.headers.get(m.CONTEXT_HEADER))

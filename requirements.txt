@@ -1,3 +1,4 @@
+blinker
 docopt
 requests
 flask
