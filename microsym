@@ -33,11 +33,13 @@ Options:
     --version                        Show the version.
 """
 
-import atexit, logging, mdk, requests, traceback
+import atexit, logging, mdk, traceback
 from docopt import docopt
 from flask import g, Flask, jsonify, request
 from microutil import name_version, load_yaml
 from mdk.flask import mdk_setup
+from mdk.requests import requests_session
+
 
 class Config:
 
@@ -79,12 +81,11 @@ class Config:
         return "(service: %s, address: %s, node: %s, dependencies: %s)" % \
             (self.service, self.address, self.node, deps or "none")
 
+
 app = Flask(__name__)
-m = mdk_setup(app)
 
 def envelope():
-    request.ssn = m.join(request.headers.get(m.CONTEXT_HEADER))
-    ssn = request.ssn
+    ssn = g.mdk_session
     request_id = ssn._context.key()
     ssn.info(config.name, "%s incoming request %s" % (config.node, request_id))
 
@@ -95,12 +96,13 @@ def envelope():
         'requests': []
     }
 
+    http_session = requests_session(ssn)
     for service, version in config.dependencies:
         ssn.start_interaction()
         node = ssn.resolve(service, version)
         try:
             ssn.info(config.name, "%s initiating request to %s" % (config.node, node))
-            response = requests.get(node.address, headers={m.CONTEXT_HEADER: ssn.externalize()}, timeout=3.0)
+            response = http_session.get(node.address, timeout=3.0)
             ssn.debug(config.name, "about to parse as JSON")
             responder_data = response.json()
             ssn.debug(config.name, "successfully parsed JSON")
@@ -133,8 +135,7 @@ def render(result):
 @app.errorhandler(Exception)
 def unhandled_exception(e):
     err = traceback.format_exc(e)
-    if getattr(request, "ssn", None):
-        request.ssn.error(config.name, err)
+    g.mdk_session.error(config.name, err)
     return err, 500
 
 def run(args):
@@ -161,11 +162,11 @@ def run(args):
 
     logging.basicConfig(level=logging.INFO)
 
+    m = mdk_setup(app)
+
     if not args['--silent']:
         m.register(config.name, config.version, config.address)
     m._runtime.dependencies.getService("failurepolicy_factory").threshold = 1
-    m.start()
-    atexit.register(m.stop)
 
     ssn = m.session()
     ssn.info(config.name, "starting %s" % config)
