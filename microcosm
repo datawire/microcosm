@@ -17,7 +17,7 @@
 """microcosm
 
 Usage:
-    microcosm run  <architecture-file> [ --timeout=<seconds> ]
+    microcosm run [ --timeout=<seconds> ] [ --state=<state-dir> ] [ --port=<port> ] <architecture-file>
     microcosm (-h | --help)
     microcosm --version
 
@@ -49,7 +49,7 @@ logger = logging.getLogger('microcosm')
 class Architecture:
 
     @staticmethod
-    def load(path):
+    def load(path, args):
         """
         Reads a Microcosm configuration file.
 
@@ -57,23 +57,36 @@ class Architecture:
         dictionary containing configuration values
         """
         name = os.path.splitext(os.path.basename(path))[0]
-        return Architecture(name, load_yaml(path))
+        return Architecture(name, args, load_yaml(path))
 
-    def __init__(self, name, arch):
+    def __init__(self, name, args, arch):
         self.name = name
         self.services = OrderedDict()
+
         svcs = arch.get("services", {}).items()
+
         if len(svcs) < 1:
             raise ValueError('Missing or empty "services" key. Define at least one service to continue')
 
         for namever, dfn in svcs:
             name, ver = name_version(namever)
             self.services[(name, ver)] = Service(self, name, ver, dfn)
+
         for namever, dfn in svcs:
             name, ver = name_version(namever)
             self.services[(name, ver)]._deps(dfn.get("dependencies", []))
-        self.state_dir = "logs/{}".format(self.name)
-        self.port = 5000
+
+        self.state_dir = args.get('--state', None)
+
+        if not self.state_dir:
+            self.state_dir = "logs/{}".format(self.name)
+
+        port = args.get('--port', '5000')
+
+        if port:
+            self.port = int(port)
+        else:
+            self.port = 5000
 
     def resolve(self, required_name, required_version):
         for (name, version), svc in self.services.items():
@@ -204,7 +217,7 @@ class Service:
 def run(args):
     arch_file = args['<architecture-file>']
     logger.info("Loading architecture: %s", arch_file)
-    arch = Architecture.load(arch_file)
+    arch = Architecture.load(arch_file, args)
 
     m = mdk.init()
     m.start()
